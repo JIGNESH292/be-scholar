@@ -1,0 +1,343 @@
+import os
+import json
+import time
+import datetime
+import pandas as pd
+import streamlit as st
+from dotenv import load_dotenv
+
+ENV_PATH = os.path.join(os.path.dirname(__file__), ".env")
+load_dotenv(ENV_PATH)
+
+def get_active_api_key():
+    """
+    Secure & robust API Key retrieval:
+    1. Check Streamlit UI widget inputs
+    2. Check Streamlit Cloud Secrets (st.secrets)
+    3. Check Environment Variables (os.getenv)
+    """
+    for widget_key in ["inline_key_input", "sidebar_key_input", "gemini_api_key"]:
+        val = st.session_state.get(widget_key, "")
+        if val and str(val).strip():
+            return str(val).strip()
+            
+    # Check Streamlit Cloud Secrets Manager (share.streamlit.io)
+    try:
+        if hasattr(st, "secrets") and "GEMINI_API_KEY" in st.secrets:
+            sec_val = str(st.secrets["GEMINI_API_KEY"]).strip()
+            if sec_val:
+                return sec_val
+    except Exception:
+        pass
+
+    # Check Environment Variable / .env file
+    env_val = os.getenv("GEMINI_API_KEY", "").strip()
+    if env_val:
+        return env_val
+
+    return ""
+
+@st.cache_data(ttl=5)
+def get_cached_questions(sheet_name="Question_Bank"):
+    """Cache Excel data in memory for 3x faster UI rendering."""
+    return db.load_questions(sheet_name)
+
+# Page Setup
+st.set_page_config(page_title="Be Scholar - GSSSB Exam Prep", page_icon="🎓", layout="wide", initial_sidebar_state="expanded")
+
+# Lightweight Custom CSS
+st.markdown("""
+<style>
+    .main-title { color: #1E88E5; font-size: 2.2rem; font-weight: 800; margin-bottom: 0.1rem; }
+    .sub-title { color: #424242; font-size: 1.1rem; margin-bottom: 0.4rem; }
+    .author-badge { background-color: #E3F2FD; border-left: 4px solid #1E88E5; padding: 8px 12px; border-radius: 6px; color: #0D47A1; font-weight: 600; font-size: 0.85rem; line-height: 1.4; margin-bottom: 1rem; }
+    .card { background-color: #f8f9fa; border-left: 5px solid #1E88E5; padding: 1rem; border-radius: 8px; margin-bottom: 1rem; }
+    .timer-badge { background-color: #E3F2FD; color: #0D47A1; padding: 6px 14px; border-radius: 18px; font-weight: bold; font-size: 1.1rem; border: 1px solid #90CAF9; }
+</style>
+""", unsafe_allow_html=True)
+
+# Session State Init
+for k, v in [("lang", "GU"), ("quiz_active", False), ("quiz_questions", []), ("user_answers", {}), ("marked_questions", set()), ("current_q_idx", 0), ("start_time", None), ("test_submitted", False)]:
+    if k not in st.session_state:
+        st.session_state[k] = v
+
+db.init_db()
+
+# --- SIDEBAR ---
+with st.sidebar:
+    st.image("https://img.icons8.com/color/96/graduation-cap.png", width=60)
+    st.title("Be Scholar")
+    st.caption("GSSSB Supervisor Instructor Exam Prep")
+    st.markdown('<div class="author-badge">👨‍🏫 DEVELOPED BY DR.JIGNESH B.PATEL,<br>ASSISTANT PROFESSOR,<br>DC & IT,<br>HNGU ,PATAN</div>', unsafe_allow_html=True)
+    st.markdown("---")
+    
+    navigation = st.radio("મેનૂ પસંદ કરો / Select View:", ["🎯 Test Engine (ટેસ્ટ કસોટી)", "🤖 AI Bulk Generator (હજારો MCQs)", "📊 Performance Analytics (ડેશબોર્ડ)", "📖 Revision Zone (રિવિઝન ઝોન)", "🔑 API Key Guide (મદદ અને સેટિંગ્સ)"])
+    st.markdown("---")
+    
+    sidebar_key = st.text_input("API Key પેસ્ટ કરો:", value=get_active_api_key(), type="password", key="sidebar_key_input")
+    if sidebar_key and sidebar_key != st.session_state.get("gemini_api_key"):
+        st.session_state.gemini_api_key = sidebar_key
+        try:
+            with open(ENV_PATH, "w", encoding="utf-8") as f:
+                f.write(f"GEMINI_API_KEY={sidebar_key}\n")
+        except Exception:
+            pass
+
+# Main Header
+c_h1, c_h2 = st.columns([3, 1])
+with c_h1:
+    st.markdown('<div class="main-title">🎓 Be Scholar</div>', unsafe_allow_html=True)
+    st.markdown('<div class="sub-title">GSSSB સુપરવાઈઝર ઈન્સ્ટ્રક્ટર (Apparel & Fashion Design) પરીક્ષા તૈયારી સૉફ્ટવેર</div>', unsafe_allow_html=True)
+    st.markdown('<div class="author-badge">DEVELOPED BY DR.JIGNESH B.PATEL,<br>ASSISTANT PROFESSOR,<br>DC & IT,<br>HNGU ,PATAN</div>', unsafe_allow_html=True)
+
+with c_h2:
+    st.markdown("##### 🌐 ભાષા / Language:")
+    toggle_val = st.radio("Lang", ["ગુજરાતી 🇮🇳", "English 🇬🇧"], index=0 if st.session_state.lang == "GU" else 1, horizontal=True, label_visibility="collapsed")
+    st.session_state.lang = "GU" if "ગુજરાતી" in toggle_val else "EN"
+
+st.markdown("---")
+
+# ================= PAGE 1: TEST ENGINE =================
+if navigation.startswith("🎯"):
+    st.header("🎯 GSSSB કસોટી એન્જિન (Test Engine)")
+
+    if not st.session_state.quiz_active:
+        st.subheader("📋 નવી ટેસ્ટ સેટઅપ કરો")
+        df_questions = get_cached_questions("Question_Bank")
+        
+        if df_questions.empty:
+            st.warning("⚠️ ડેટાબેઝમાં હજુ સુધી કોઈ પ્રશ્નો નથી.")
+            if st.button("🌱 Load Initial Seed Questions Now"):
+                import seed_data
+                seed_data.seed_database()
+                st.cache_data.clear()
+                st.rerun()
+        else:
+            subjects = ["તમામ વિષયો (All Subjects)"] + list(df_questions["Subject"].dropna().unique())
+            c1, c2, c3 = st.columns(3)
+            with c1: selected_subject = st.selectbox("વિષય પસંદ કરો:", subjects)
+            with c2: q_count = st.selectbox("પ્રશ્નોની સંખ્યા:", [10, 25, 50, 100, 200], index=0)
+            with c3: duration_mins = st.number_input("સમય (મિનિટમાં):", min_value=5, max_value=180, value=30, step=5)
+
+            if st.button("🚀 ટેસ્ટ શરૂ કરો (Start Test)", type="primary", use_container_width=True):
+                filtered = df_questions if selected_subject.startswith("તમામ") else df_questions[df_questions["Subject"] == selected_subject]
+                if filtered.empty:
+                    st.error("આ વિષય માટે કોઈ પ્રશ્નો મળ્યા નથી!")
+                else:
+                    sample_sz = min(len(filtered), int(q_count))
+                    st.session_state.quiz_questions = filtered.sample(n=sample_sz).to_dict("records")
+                    st.session_state.quiz_active = True
+                    st.session_state.user_answers, st.session_state.marked_questions = {}, set()
+                    st.session_state.current_q_idx = 0
+                    st.session_state.start_time = time.time()
+                    st.session_state.test_duration = duration_mins * 60
+                    st.session_state.test_submitted = False
+                    st.rerun()
+    else:
+        questions = st.session_state.quiz_questions
+        curr_idx = st.session_state.current_q_idx
+        q_data = questions[curr_idx]
+        
+        elapsed = time.time() - st.session_state.start_time
+        remaining = max(0, st.session_state.test_duration - elapsed)
+        if remaining == 0 and not st.session_state.test_submitted:
+            st.session_state.test_submitted = True
+
+        col_t1, col_t2, col_t3 = st.columns([2, 2, 2])
+        with col_t1:
+            m, s = divmod(int(remaining), 60)
+            st.markdown(f'<div class="timer-badge">⏱️ બાકી સમય: {m:02d}:{s:02d}</div>', unsafe_allow_html=True)
+        with col_t2: st.markdown(f"**પ્રશ્ન ક્રમાંક:** {curr_idx + 1} / {len(questions)}")
+        with col_t3:
+            if st.button("📥 ટેસ્ટ સબમિટ કરો", type="primary"):
+                st.session_state.test_submitted = True
+                st.rerun()
+
+        st.progress((curr_idx + 1) / len(questions))
+        st.markdown("---")
+        col_q, col_grid = st.columns([3, 1])
+
+        with col_q:
+            is_gu = st.session_state.lang == "GU"
+            q_text = q_data.get("Question_GU") if is_gu else q_data.get("Question_EN")
+            if not q_text or str(q_text) == "nan": q_text = q_data.get("Question_EN", "")
+            opts = db.parse_options(q_data.get("Options_GU") if is_gu else q_data.get("Options_EN"))
+            
+            st.markdown(f'<div class="card"><h4>{curr_idx + 1}. {q_text}</h4><span class="badge-gu">{q_data.get("Subject")}</span></div>', unsafe_allow_html=True)
+
+            curr_sel = st.session_state.user_answers.get(curr_idx, None)
+            opt_letters = ["A", "B", "C", "D"]
+            sel_letter = st.radio("જવાબ પસંદ કરો:", opt_letters, format_func=lambda i: opts[opt_letters.index(i)] if opt_letters.index(i) < len(opts) else i, index=opt_letters.index(curr_sel) if curr_sel in opt_letters else None, key=f"q_r_{curr_idx}")
+            if sel_letter: st.session_state.user_answers[curr_idx] = sel_letter
+
+            b1, b2, b3, b4 = st.columns(4)
+            with b1:
+                if st.button("⬅️ પાછળ", disabled=(curr_idx == 0)):
+                    st.session_state.current_q_idx -= 1
+                    st.rerun()
+            with b2:
+                if st.button("➡️ આગળ", disabled=(curr_idx == len(questions) - 1)):
+                    st.session_state.current_q_idx += 1
+                    st.rerun()
+            with b3:
+                is_m = curr_idx in st.session_state.marked_questions
+                if st.button("💛 Unmark" if is_m else "⭐ Mark"):
+                    st.session_state.marked_questions.remove(curr_idx) if is_m else st.session_state.marked_questions.add(curr_idx)
+                    st.rerun()
+            with b4:
+                if st.button("❌ Clear Choice"):
+                    st.session_state.user_answers.pop(curr_idx, None)
+                    st.rerun()
+
+        with col_grid:
+            st.markdown("##### 📌 પ્રશ્ન ગ્રીડ")
+            grid_cols = st.columns(4)
+            for i in range(len(questions)):
+                sym = f"⭐{i+1}" if i in st.session_state.marked_questions else (f"✅{i+1}" if i in st.session_state.user_answers else f"{i+1}")
+                if i == curr_idx: sym = f"👉{sym}"
+                with grid_cols[i % 4]:
+                    if st.button(sym, key=f"g_{i}"):
+                        st.session_state.current_q_idx = i
+                        st.rerun()
+
+        if st.session_state.test_submitted:
+            st.markdown("---")
+            st.header("📊 કસોટી પરિણામ")
+            correct = sum(1 for idx, q in enumerate(questions) if st.session_state.user_answers.get(idx) == str(q.get("Correct_Answer", "")).upper().strip())
+            unatt = sum(1 for idx in range(len(questions)) if idx not in st.session_state.user_answers)
+            inc = len(questions) - correct - unatt
+            score = (correct * 1.0) - (inc * 0.25)
+
+            wrong_rows = [q for idx, q in enumerate(questions) if idx in st.session_state.user_answers and st.session_state.user_answers.get(idx) != str(q.get("Correct_Answer", "")).upper().strip()]
+            if wrong_rows:
+                db.save_revision_questions(pd.DataFrame(wrong_rows))
+                st.cache_data.clear()
+
+            db.save_test_result(datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S"), questions[0].get("Subject", "General"), len(questions), score, correct, inc, unatt)
+
+            rc1, rc2, rc3, rc4 = st.columns(4)
+            rc1.metric("કુલ ગુણ", f"{score:.2f} / {len(questions)}")
+            rc2.metric("સાચા જવાબો", f"✅ {correct}")
+            rc3.metric("ખોટા જવાબો (-0.25)", f"❌ {inc}")
+            rc4.metric("અપ્રયત્નિત", f"⚪ {unatt}")
+
+            if st.button("🔄 નવી ટેસ્ટ આપો", type="primary"):
+                st.session_state.quiz_active = False
+                st.session_state.test_submitted = False
+                st.rerun()
+
+# ================= PAGE 2: BULK AI MCQ GENERATOR =================
+elif navigation.startswith("🤖"):
+    st.header("🤖 AI બલ્ક પ્રશ્ન નિર્માણ મોડ્યુલ")
+    active_key = get_active_api_key()
+    
+    st.subheader("🔑 API Key સેટઅપ")
+    ck1, ck2 = st.columns([3, 1])
+    with ck1: in_key = st.text_input("API Key:", value=active_key, type="password", key="inline_key_input")
+    with ck2:
+        st.markdown("<br>", unsafe_allow_html=True)
+        if st.button("🔑 Save API Key", type="primary"):
+            if in_key.strip():
+                st.session_state.gemini_api_key = in_key.strip()
+                try:
+                    with open(ENV_PATH, "w", encoding="utf-8") as f: f.write(f"GEMINI_API_KEY={in_key.strip()}\n")
+                except Exception: pass
+                st.success("✅ API Key સાચવી લેવાઈ!")
+                st.rerun()
+
+    st.markdown("---")
+    ca1, ca2 = st.columns([1, 1])
+    with ca1:
+        uploaded_pdfs = st.file_uploader("PDFs અપલોડ કરો:", type=["pdf"], accept_multiple_files=True)
+        url_in = st.text_input("અથવા Web URL:")
+        custom_txt = st.text_area("અથવા કસ્ટમ ટેક્સ્ટ:", height=100)
+    with ca2:
+        target_subject = st.selectbox("લક્ષ્ય વિષય:", db.SUBJECTS)
+        target_total = st.select_slider("🎯 કુલ કેટલા પ્રશ્નો?", options=[10, 20, 50, 100, 250, 500, 1000, 2000], value=100)
+        batch_size = st.slider("Batch Size:", min_value=10, max_value=30, value=20)
+
+    if st.button(f"⚡ {target_total} નવા દ્વિભાષી MCQs જનરેટ કરો", type="primary", use_container_width=True):
+        final_k = get_active_api_key()
+        if not final_k:
+            st.error("❌ API Key ગેરહાજર છે! સાઈડબાર કે ઉપરના ખાનામાં API Key દાખલ કરો.")
+        else:
+            all_chunks = []
+            if uploaded_pdfs:
+                for pdf in uploaded_pdfs: all_chunks.extend(pe.extract_pdf_chunks(pdf))
+            elif url_in: all_chunks.append(pe.extract_text_from_url(url_in))
+            elif custom_txt: all_chunks.append(custom_txt)
+            else: all_chunks.append(f"GSSSB Supervisor Instructor syllabus for {target_subject}.")
+
+            pbar, stxt = st.progress(0.0), st.empty()
+            def on_prog(cur, tot, batch, bnum):
+                pbar.progress(min(1.0, cur / tot))
+                stxt.markdown(f"⏳ **પેકેટ {bnum} પૂર્ણ:** જનરેટ થયા: **{cur} / {tot}** MCQs...")
+
+            succ, msg, gen_list = ai.generate_bulk_gsssb_mcqs(final_k, all_chunks, target_subject, target_total, batch_size, on_prog)
+            if succ:
+                st.cache_data.clear()
+                st.balloons()
+                st.success(f"🎉 {msg}")
+            else:
+                st.error(msg)
+
+# ================= PAGE 3: PERFORMANCE ANALYTICS =================
+elif navigation.startswith("📊"):
+    st.header("📊 પ્રગતિ ડેશબોર્ડ")
+    df_hist = db.load_questions("Test_History")
+    df_q = get_cached_questions("Question_Bank")
+    df_r = get_cached_questions("Revision_Sheet")
+    
+    s1, s2, s3 = st.columns(3)
+    s1.metric("કુલ ડેટાબેઝ પ્રશ્નો", len(df_q))
+    s2.metric("કુલ આપેલી ટેસ્ટ", len(df_hist))
+    s3.metric("રિવિઝન પેન્ડિંગ પ્રશ્નો", len(df_r))
+    st.markdown("---")
+
+    if df_hist.empty:
+        st.info("ℹ️ હજુ સુધી કોઈ કસોટી પૂરી થઈ નથી.")
+    else:
+        import plotly.express as px
+        subj_summary = df_hist.groupby("Subject")[["Score", "Correct_Count", "Incorrect_Count"]].sum().reset_index()
+        fig = px.bar(subj_summary, x="Subject", y=["Correct_Count", "Incorrect_Count"], title="વિષયવાર સચોટતા", barmode="group")
+        st.plotly_chart(fig, use_container_width=True)
+        st.dataframe(df_hist.sort_values(by="Timestamp", ascending=False), use_container_width=True)
+
+# ================= PAGE 4: REVISION ZONE =================
+elif navigation.startswith("📖"):
+    st.header("📖 રિવિઝન ઝોન")
+    df_rev = get_cached_questions("Revision_Sheet")
+    
+    if df_rev.empty:
+        st.success("🎉 તમારી રિવિઝન શીટ ખાલી છે.")
+    else:
+        st.warning(f"⚠️ તમારી રિવિઝન શીટમાં કુલ **{len(df_rev)}** ખોટા પડેલા પ્રશ્નો છે.")
+        if st.button("🚀 રિવિઝન કસોટી શરૂ કરો", type="primary"):
+            st.session_state.quiz_questions = df_rev.to_dict("records")
+            st.session_state.quiz_active = True
+            st.session_state.user_answers, st.session_state.marked_questions = {}, set()
+            st.session_state.current_q_idx = 0
+            st.session_state.start_time = time.time()
+            st.session_state.test_duration = 3600
+            st.session_state.test_submitted = False
+            st.rerun()
+
+        is_gu = st.session_state.lang == "GU"
+        for idx, r in df_rev.iterrows():
+            with st.expander(f"📌 [{r['Subject']}] {r['Question_GU'] if is_gu else r['Question_EN']}"):
+                st.write(f"**સાચો જવાબ:** {r['Correct_Answer']}")
+                st.write("**વિકલ્પો:**", db.parse_options(r['Options_GU'] if is_gu else r['Options_EN']))
+
+# ================= PAGE 5: HELP & GUIDE =================
+else:
+    st.header("🔑 ગાઈડ અને સેટિંગ્સ")
+    st.markdown("""
+    ### 🎓 Be Scholar - GSSSB Supervisor Instructor Exam Software
+    **DEVELOPED BY DR.JIGNESH B.PATEL,**  
+    **ASSISTANT PROFESSOR,**  
+    **DC & IT,**  
+    **HNGU ,PATAN**
+    ---
+    1. **Gemini / OpenAI API Key**: સાઈડબાર કે ઉપરના બોક્સમાં પેસ્ટ કરી સેવ કરો.
+    2. **હજારો MCQs જનરેટ કરવા**: **AI Bulk Generator** નો ઉપયોગ કરો.
+    """)
