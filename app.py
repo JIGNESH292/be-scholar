@@ -6,6 +6,10 @@ import pandas as pd
 import streamlit as st
 from dotenv import load_dotenv
 
+import database as db
+import pdf_extractor as pe
+import ai_generator as ai
+
 ENV_PATH = os.path.join(os.path.dirname(__file__), ".env")
 load_dotenv(ENV_PATH)
 
