@@ -13,19 +13,17 @@ import ai_generator as ai
 ENV_PATH = os.path.join(os.path.dirname(__file__), ".env")
 load_dotenv(ENV_PATH)
 
+# Authentication Credentials
+AUTH_USER = "jigneshpatel"
+AUTH_PASS = "jigishapatel"
+
 def get_active_api_key():
-    """
-    Secure & robust API Key retrieval:
-    1. Check Streamlit UI widget inputs
-    2. Check Streamlit Cloud Secrets (st.secrets)
-    3. Check Environment Variables (os.getenv)
-    """
+    """Secure & robust API Key retrieval."""
     for widget_key in ["inline_key_input", "sidebar_key_input", "gemini_api_key"]:
         val = st.session_state.get(widget_key, "")
         if val and str(val).strip():
             return str(val).strip()
             
-    # Check Streamlit Cloud Secrets Manager (share.streamlit.io)
     try:
         if hasattr(st, "secrets") and "GEMINI_API_KEY" in st.secrets:
             sec_val = str(st.secrets["GEMINI_API_KEY"]).strip()
@@ -34,7 +32,6 @@ def get_active_api_key():
     except Exception:
         pass
 
-    # Check Environment Variable / .env file
     env_val = os.getenv("GEMINI_API_KEY", "").strip()
     if env_val:
         return env_val
@@ -55,19 +52,55 @@ st.markdown("""
     .main-title { color: #1E88E5; font-size: 2.2rem; font-weight: 800; margin-bottom: 0.1rem; }
     .sub-title { color: #424242; font-size: 1.1rem; margin-bottom: 0.4rem; }
     .author-badge { background-color: #E3F2FD; border-left: 4px solid #1E88E5; padding: 8px 12px; border-radius: 6px; color: #0D47A1; font-weight: 600; font-size: 0.85rem; line-height: 1.4; margin-bottom: 1rem; }
+    .login-card { max-width: 450px; margin: 40px auto; padding: 2rem; background-color: #FFFFFF; border-radius: 10px; border-top: 5px solid #1E88E5; box-shadow: 0 4px 12px rgba(0,0,0,0.1); }
     .card { background-color: #f8f9fa; border-left: 5px solid #1E88E5; padding: 1rem; border-radius: 8px; margin-bottom: 1rem; }
     .timer-badge { background-color: #E3F2FD; color: #0D47A1; padding: 6px 14px; border-radius: 18px; font-weight: bold; font-size: 1.1rem; border: 1px solid #90CAF9; }
 </style>
 """, unsafe_allow_html=True)
 
 # Session State Init
-for k, v in [("lang", "GU"), ("quiz_active", False), ("quiz_questions", []), ("user_answers", {}), ("marked_questions", set()), ("current_q_idx", 0), ("start_time", None), ("test_submitted", False)]:
+for k, v in [("authenticated", False), ("lang", "GU"), ("quiz_active", False), ("quiz_questions", []), ("user_answers", {}), ("marked_questions", set()), ("current_q_idx", 0), ("start_time", None), ("test_submitted", False)]:
     if k not in st.session_state:
         st.session_state[k] = v
 
 db.init_db()
 
-# --- SIDEBAR ---
+# --- LOGIN SCREEN ---
+if not st.session_state.authenticated:
+    col_l1, col_l2, col_l3 = st.columns([1, 2, 1])
+    with col_l2:
+        st.markdown("""
+        <div style="text-align: center; margin-top: 30px;">
+            <img src="https://img.icons8.com/color/96/graduation-cap.png" width="80">
+            <h1 style="color: #1E88E5; font-weight: 800; margin-bottom: 0;">🎓 Be Scholar</h1>
+            <p style="color: #555555; font-size: 1.1rem;">GSSSB Supervisor Instructor Exam Prep</p>
+            <div class="author-badge" style="text-align: left; display: inline-block;">
+                DEVELOPED BY DR.JIGNESH B.PATEL,<br>
+                ASSISTANT PROFESSOR,<br>
+                DC & IT,<br>
+                HNGU ,PATAN
+            </div>
+        </div>
+        """, unsafe_allow_html=True)
+        
+        with st.form("login_form"):
+            st.subheader("🔐 લૉગિન / Login Access")
+            user_in = st.text_input("Username / યુઝરનેમ:", placeholder="Enter Username")
+            pass_in = st.text_input("Password / પાસવર્ડ:", type="password", placeholder="Enter Password")
+            
+            submit_login = st.form_submit_button("🔐 Login / પ્રવેશ કરો", use_container_width=True, type="primary")
+            
+            if submit_login:
+                if user_in.strip() == AUTH_USER and pass_in.strip() == AUTH_PASS:
+                    st.session_state.authenticated = True
+                    st.success("✅ લૉગિન સફળ થયું!")
+                    st.rerun()
+                else:
+                    st.error("❌ અમાન્ય યુઝરનેમ અથવા પાસવર્ડ! (Invalid Username or Password)")
+    st.stop()
+
+
+# --- SIDEBAR (AUTHENTICATED) ---
 with st.sidebar:
     st.image("https://img.icons8.com/color/96/graduation-cap.png", width=60)
     st.title("Be Scholar")
@@ -86,6 +119,11 @@ with st.sidebar:
                 f.write(f"GEMINI_API_KEY={sidebar_key}\n")
         except Exception:
             pass
+
+    st.markdown("---")
+    if st.button("🚪 Logout (લૉગઆઉટ)", use_container_width=True):
+        st.session_state.authenticated = False
+        st.rerun()
 
 # Main Header
 c_h1, c_h2 = st.columns([3, 1])
