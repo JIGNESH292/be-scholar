@@ -2,6 +2,7 @@ import os
 import json
 import time
 import datetime
+import io
 import pandas as pd
 import streamlit as st
 from dotenv import load_dotenv
@@ -13,7 +14,6 @@ import ai_generator as ai
 ENV_PATH = os.path.join(os.path.dirname(__file__), ".env")
 load_dotenv(ENV_PATH)
 
-# Authentication Credentials
 AUTH_USER = "jigneshpatel"
 AUTH_PASS = "jigishapatel"
 
@@ -38,7 +38,7 @@ def get_active_api_key():
 
     return ""
 
-@st.cache_data(ttl=5)
+@st.cache_data(ttl=3)
 def get_cached_questions(sheet_name="Question_Bank"):
     """Cache Excel data in memory for 3x faster UI rendering."""
     return db.load_questions(sheet_name)
@@ -108,7 +108,14 @@ with st.sidebar:
     st.markdown('<div class="author-badge">👨‍🏫 DEVELOPED BY DR.JIGNESH B.PATEL,<br>ASSISTANT PROFESSOR,<br>DC & IT,<br>HNGU ,PATAN</div>', unsafe_allow_html=True)
     st.markdown("---")
     
-    navigation = st.radio("મેનૂ પસંદ કરો / Select View:", ["🎯 Test Engine (ટેસ્ટ કસોટી)", "🤖 AI Bulk Generator (હજારો MCQs)", "📊 Performance Analytics (ડેશબોર્ડ)", "📖 Revision Zone (રિવિઝન ઝોન)", "🔑 API Key Guide (મદદ અને સેટિંગ્સ)"])
+    navigation = st.radio("મેનૂ પસંદ કરો / Select View:", [
+        "🎯 Test Engine (ટેસ્ટ કસોટી)", 
+        "📚 Question Bank Manager (સંચિત પ્રશ્ન સંગ્રહ)",
+        "🤖 AI Bulk Generator (હજારો MCQs)", 
+        "📊 Performance Analytics (ડેશબોર્ડ)", 
+        "📖 Revision Zone (રિવિઝન ઝોન)", 
+        "🔑 API Key Guide (મદદ અને સેટિંગ્સ)"
+    ])
     st.markdown("---")
     
     sidebar_key = st.text_input("API Key પેસ્ટ કરો:", value=get_active_api_key(), type="password", key="sidebar_key_input")
@@ -139,23 +146,26 @@ with c_h2:
 
 st.markdown("---")
 
-# ================= PAGE 1: TEST ENGINE =================
+
+# ================= PAGE 1: TEST ENGINE (ZERO API TOKEN COST) =================
 if navigation.startswith("🎯"):
     st.header("🎯 GSSSB કસોટી એન્જિન (Test Engine)")
 
     if not st.session_state.quiz_active:
-        st.subheader("📋 નવી ટેસ્ટ સેટઅપ કરો")
+        st.subheader("📋 નવી ટેસ્ટ સેટઅપ કરો (0% API Token Cost)")
         df_questions = get_cached_questions("Question_Bank")
         
         if df_questions.empty:
-            st.warning("⚠️ ડેટાબેઝમાં હજુ સુધી કોઈ પ્રશ્નો નથી.")
+            st.warning("⚠️ ડેટાબેઝમાં હજુ સુધી કોઈ પ્રશ્નો નથી. પ્રાથમિક પ્રશ્નો લોડ કરવા માટે નીચેના બટન પર ક્લિક કરો.")
             if st.button("🌱 Load Initial Seed Questions Now"):
                 import seed_data
                 seed_data.seed_database()
                 st.cache_data.clear()
                 st.rerun()
         else:
+            st.info(f"💡 તમારા સંગ્રહિત એક્સેલ ડેટાબેઝમાં હાલ કુલ **{len(df_questions)}** પ્રશ્નો ઉપલબ્ધ છે. કોઈપણ API Token નો ખર્ચ કર્યા વગર ટેસ્ટ આપો!")
             subjects = ["તમામ વિષયો (All Subjects)"] + list(df_questions["Subject"].dropna().unique())
+            
             c1, c2, c3 = st.columns(3)
             with c1: selected_subject = st.selectbox("વિષય પસંદ કરો:", subjects)
             with c2: q_count = st.selectbox("પ્રશ્નોની સંખ્યા:", [10, 25, 50, 100, 200], index=0)
@@ -268,9 +278,78 @@ if navigation.startswith("🎯"):
                 st.session_state.test_submitted = False
                 st.rerun()
 
-# ================= PAGE 2: BULK AI MCQ GENERATOR =================
+
+# ================= PAGE 2: QUESTION BANK MANAGER (સંચિત પ્રશ્ન સંગ્રહ) =================
+elif navigation.startswith("📚"):
+    st.header("📚 Question Bank Manager (સંચિત પ્રશ્ન સંગ્રહ)")
+    st.markdown("અત્યાર સુધીના તમામ સાચવેલા જૂના અને નવા પ્રશ્નોનું સંચાલન, ડાઉનલોડ અને ઓટો-બેકઅપ કન્ટ્રોલ.")
+    
+    df_all = get_cached_questions("Question_Bank")
+    
+    col_mb1, col_mb2 = st.columns([2, 1])
+    with col_mb1:
+        st.subheader("📥 Excel ડેટાબેઝ બેકઅપ ડાઉનલોડ કરો")
+        st.markdown("બધા સંગ્રહિત પ્રશ્નો સાથેની અદ્યતન એક્સેલ ફાઈલ ડાઉનલોડ કરી તમારા કમ્પ્યુટરમાં કાયમી સેવ રાખો:")
+        
+        # Prepare Excel download buffer
+        excel_buffer = io.BytesIO()
+        with pd.ExcelWriter(excel_buffer, engine="openpyxl") as writer:
+            df_all.to_excel(writer, sheet_name="Question_Bank", index=False)
+            db.load_questions("Revision_Sheet").to_excel(writer, sheet_name="Revision_Sheet", index=False)
+            db.load_questions("Test_History").to_excel(writer, sheet_name="Test_History", index=False)
+        excel_data = excel_buffer.getvalue()
+        
+        st.download_button(
+            label="📥 Download gsssb_question_bank.xlsx Excel Backup",
+            data=excel_data,
+            file_name="gsssb_question_bank.xlsx",
+            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            type="primary"
+        )
+        
+    with col_mb2:
+        st.subheader("📤 એક્સેલ ફાઈલ ઈમ્પોર્ટ કરો (Restore)")
+        uploaded_excel_file = st.file_uploader("જૂની કે કસ્ટમ એક્સેલ ફાઈલ અપલોડ કરો:", type=["xlsx", "xls"])
+        if uploaded_excel_file is not None:
+            if st.button("🔄 Restore/Merge Excel Database"):
+                saved_c, msg = db.merge_uploaded_excel(uploaded_excel_file)
+                if saved_c > 0:
+                    st.cache_data.clear()
+                    st.success(f"🎉 {msg}")
+                    st.rerun()
+                else:
+                    st.warning(f"⚠️ {msg}")
+
+    st.markdown("---")
+    st.subheader(f"🔍 સંચિત પ્રશ્નોનું બ્રાઉઝિંગ (કુલ પ્રશ્નો: {len(df_all)})")
+    
+    if df_all.empty:
+        st.info("ડેટાબેઝમાં હજુ સુધી કોઈ પ્રશ્નો ઉપલબ્ધ નથી.")
+    else:
+        filter_c1, filter_c2 = st.columns([1, 1])
+        with filter_c1:
+            subj_filter = st.selectbox("વિષય અનુસાર ફિલ્ટર કરો:", ["તમામ વિષયો (All)"] + list(df_all["Subject"].dropna().unique()))
+        with filter_c2:
+            search_query = st.text_input("પ્રશ્નમાં શબ્દ શોધો (Search Text):")
+
+        df_view = df_all.copy()
+        if subj_filter != "તમામ વિષયો (All)":
+            df_view = df_view[df_view["Subject"] == subj_filter]
+        if search_query.strip():
+            df_view = df_view[
+                df_view["Question_GU"].astype(str).str.contains(search_query, case=False, na=False) |
+                df_view["Question_EN"].astype(str).str.contains(search_query, case=False, na=False)
+            ]
+
+        st.caption(f"દર્શાવેલ પ્રશ્નો: {len(df_view)} / {len(df_all)}")
+        st.dataframe(df_view[["ID", "Subject", "Question_GU", "Question_EN", "Correct_Answer", "Difficulty"]], use_container_width=True)
+
+
+# ================= PAGE 3: FLEXIBLE AI BULK MCQ GENERATOR =================
 elif navigation.startswith("🤖"):
-    st.header("🤖 AI બલ્ક પ્રશ્ન નિર્માણ મોડ્યુલ")
+    st.header("🤖 AI બલ્ક પ્રશ્ન નિર્માણ મોડ્યુલ (Flexible MCQ Generator)")
+    st.markdown("તમારી જરૂરિયાત અનુસાર **મુક્ત સંખ્યામાં (૧૦ થી ૧૦૦૦+ )** નવેનવા દ્વિભાષી પ્રશ્નો ઓટો-જનરેટ કરી `gsssb_question_bank.xlsx` માં ઉમેરો.")
+
     active_key = get_active_api_key()
     
     st.subheader("🔑 API Key સેટઅપ")
@@ -290,15 +369,21 @@ elif navigation.startswith("🤖"):
     st.markdown("---")
     ca1, ca2 = st.columns([1, 1])
     with ca1:
-        uploaded_pdfs = st.file_uploader("PDFs અપલોડ કરો:", type=["pdf"], accept_multiple_files=True)
+        uploaded_pdfs = st.file_uploader("GSSSB જૂના પેપર્સ PDFs અપલોડ કરો:", type=["pdf"], accept_multiple_files=True)
         url_in = st.text_input("અથવા Web URL:")
         custom_txt = st.text_area("અથવા કસ્ટમ ટેક્સ્ટ:", height=100)
     with ca2:
         target_subject = st.selectbox("લક્ષ્ય વિષય:", db.SUBJECTS)
-        target_total = st.select_slider("🎯 કુલ કેટલા પ્રશ્નો?", options=[10, 20, 50, 100, 250, 500, 1000, 2000], value=100)
-        batch_size = st.slider("Batch Size:", min_value=10, max_value=30, value=20)
+        
+        gen_mode = st.radio("પ્રશ્નોની સંખ્યા સિલેક્શન મોડ:", ["પસંદગી સ્લાઇડર (Preset)", "કસ્ટમ સંખ્યા (Custom Input)"], horizontal=True)
+        if gen_mode == "પસંદગી સ્લાઇડર (Preset)":
+            target_total = st.select_slider("🎯 કેટલા પ્રશ્નો જનરેટ કરવા છે?", options=[5, 10, 20, 50, 100, 250, 500, 1000], value=20)
+        else:
+            target_total = st.number_input("🎯 કસ્ટમ પ્રશ્નોની સંખ્યા દાખલ કરો:", min_value=1, max_value=2000, value=15, step=5)
+            
+        batch_size = st.slider("Batch Size (દર API કૉલે પ્રશ્નો):", min_value=5, max_value=30, value=15)
 
-    if st.button(f"⚡ {target_total} નવા દ્વિભાષી MCQs જનરેટ કરો", type="primary", use_container_width=True):
+    if st.button(f"⚡ {target_total} નવા દ્વિભાષી MCQs ઓટો-જનરેટ કરી એક્સેલમાં ઉમેરો", type="primary", use_container_width=True):
         final_k = get_active_api_key()
         if not final_k:
             st.error("❌ API Key ગેરહાજર છે! સાઈડબાર કે ઉપરના ખાનામાં API Key દાખલ કરો.")
@@ -313,17 +398,19 @@ elif navigation.startswith("🤖"):
             pbar, stxt = st.progress(0.0), st.empty()
             def on_prog(cur, tot, batch, bnum):
                 pbar.progress(min(1.0, cur / tot))
-                stxt.markdown(f"⏳ **પેકેટ {bnum} પૂર્ણ:** જનરેટ થયા: **{cur} / {tot}** MCQs...")
+                stxt.markdown(f"⏳ **પેકેટ {bnum} પૂર્ણ:** જનરેટ થાઈ કાયમી ઉમેરાયા: **{cur} / {tot}** MCQs...")
 
             succ, msg, gen_list = ai.generate_bulk_gsssb_mcqs(final_k, all_chunks, target_subject, target_total, batch_size, on_prog)
             if succ:
-                st.cache_data.clear()
+                st.cache_data.clear() # Invalidate cache so new questions reflect everywhere immediately
                 st.balloons()
                 st.success(f"🎉 {msg}")
+                st.info("💡 આ પ્રશ્નો અગાઉના જૂના પ્રશ્નો સાથે અકબંધ રીતે 'gsssb_question_bank.xlsx' માં ઉમેરાઈ ગયા છે!")
             else:
                 st.error(msg)
 
-# ================= PAGE 3: PERFORMANCE ANALYTICS =================
+
+# ================= PAGE 4: PERFORMANCE ANALYTICS =================
 elif navigation.startswith("📊"):
     st.header("📊 પ્રગતિ ડેશબોર્ડ")
     df_hist = db.load_questions("Test_History")
@@ -345,7 +432,8 @@ elif navigation.startswith("📊"):
         st.plotly_chart(fig, use_container_width=True)
         st.dataframe(df_hist.sort_values(by="Timestamp", ascending=False), use_container_width=True)
 
-# ================= PAGE 4: REVISION ZONE =================
+
+# ================= PAGE 5: REVISION ZONE =================
 elif navigation.startswith("📖"):
     st.header("📖 રિવિઝન ઝોન")
     df_rev = get_cached_questions("Revision_Sheet")
@@ -370,7 +458,8 @@ elif navigation.startswith("📖"):
                 st.write(f"**સાચો જવાબ:** {r['Correct_Answer']}")
                 st.write("**વિકલ્પો:**", db.parse_options(r['Options_GU'] if is_gu else r['Options_EN']))
 
-# ================= PAGE 5: HELP & GUIDE =================
+
+# ================= PAGE 6: HELP & GUIDE =================
 else:
     st.header("🔑 ગાઈડ અને સેટિંગ્સ")
     st.markdown("""
@@ -380,6 +469,7 @@ else:
     **DC & IT,**  
     **HNGU ,PATAN**
     ---
-    1. **Gemini / OpenAI API Key**: સાઈડબાર કે ઉપરના બોક્સમાં પેસ્ટ કરી સેવ કરો.
-    2. **હજારો MCQs જનરેટ કરવા**: **AI Bulk Generator** નો ઉપયોગ કરો.
+    1. **ઝીરો API Token ટેસ્ટિંગ**: એકવાર સેવ થયેલા પ્રશ્નોમાંથી ૧૦૦% મફતમાં અનંતવાર ટેસ્ટ આપો.
+    2. **કસ્ટમ AI MCQs નિર્માણ**: તમને જોઈએ તેટલા જનરેટ કરી કાયમી એક્સેલમાં ઉમેરો.
+    3. **Excel ડાઉનલોડ & અપલોડ**: **📚 Question Bank Manager** મેનૂમાંથી એક્સેલ ડાઉનલોડ કે ઓટો-ઈમ્પોર્ટ કરો.
     """)
