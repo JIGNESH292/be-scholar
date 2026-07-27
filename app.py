@@ -54,6 +54,7 @@ st.markdown("""
     .author-badge { background-color: #E3F2FD; border-left: 4px solid #1E88E5; padding: 8px 12px; border-radius: 6px; color: #0D47A1; font-weight: 600; font-size: 0.85rem; line-height: 1.4; margin-bottom: 1rem; }
     .login-card { max-width: 450px; margin: 40px auto; padding: 2rem; background-color: #FFFFFF; border-radius: 10px; border-top: 5px solid #1E88E5; box-shadow: 0 4px 12px rgba(0,0,0,0.1); }
     .card { background-color: #f8f9fa; border-left: 5px solid #1E88E5; padding: 1rem; border-radius: 8px; margin-bottom: 1rem; }
+    .source-box { background-color: #E8F5E9; border-left: 4px solid #4CAF50; padding: 10px 14px; border-radius: 6px; margin-bottom: 15px; font-weight: 600; color: #1B5E20; }
     .timer-badge { background-color: #E3F2FD; color: #0D47A1; padding: 6px 14px; border-radius: 18px; font-weight: bold; font-size: 1.1rem; border: 1px solid #90CAF9; }
 </style>
 """, unsafe_allow_html=True)
@@ -345,10 +346,10 @@ elif navigation.startswith("📚"):
         st.dataframe(df_view[["ID", "Subject", "Question_GU", "Question_EN", "Correct_Answer", "Difficulty"]], use_container_width=True)
 
 
-# ================= PAGE 3: FLEXIBLE AI BULK MCQ GENERATOR =================
+# ================= PAGE 3: FLEXIBLE AI BULK MCQ GENERATOR (MULTI-SOURCE UI) =================
 elif navigation.startswith("🤖"):
-    st.header("🤖 AI બલ્ક પ્રશ્ન નિર્માણ મોડ્યુલ (Flexible MCQ Generator)")
-    st.markdown("તમારી જરૂરિયાત અનુસાર **મુક્ત સંખ્યામાં (૧૦ થી ૧૦૦૦+ )** નવેનવા દ્વિભાષી પ્રશ્નો ઓટો-જનરેટ કરી `gsssb_question_bank.xlsx` માં ઉમેરો.")
+    st.header("🤖 AI બલ્ક પ્રશ્ન નિર્માણ મોડ્યુલ (Multi-Source MCQ Generator)")
+    st.markdown("તમારો સ્ત્રોત પસંદ કરો: **Web URL, Custom Text / નોટ્સ, PDF ફાઈલો, અથવા વિષય ટોપિક** માંથી પ્રશ્નો બનાવો.")
 
     active_key = get_active_api_key()
     
@@ -367,45 +368,95 @@ elif navigation.startswith("🤖"):
                 st.rerun()
 
     st.markdown("---")
+    st.subheader("🎯 પ્રશ્નો નિર્માણ કરવા માટેનો સોર્સ (Source Selection)")
+
+    source_tab1, source_tab2, source_tab3, source_tab4 = st.tabs([
+        "🌐 Web URL (વેબસાઈટ લિંક)", 
+        "✍️ Custom Text / નોટ્સ", 
+        "📄 PDF Documents (પેપર્સ)", 
+        "🎓 General Syllabus (સામાન્ય વિષય)"
+    ])
+
+    source_mode = "syllabus"
+    custom_content = ""
+    active_source_label = "General Syllabus Topic"
+    uploaded_pdfs = None
+
+    with source_tab1:
+        st.markdown("##### 🌐 ૧. કોઈપણ એજ્યુકેશનલ વેબસાઈટ અથવા સિલેબસ લિંક પૃથ્થકરણ:")
+        url_input = st.text_input("Web URL પેસ્ટ કરો (દા.ત. https://example.com/syllabus):", placeholder="https://...")
+        if url_input.strip():
+            source_mode = "url"
+            custom_content = url_input.strip()
+            active_source_label = f"Web URL Scraper ({url_input.strip()[:40]}...)"
+            st.markdown(f'<div class="source-box">✅ સક્રિય સ્ત્રોત: Web URL ({url_input.strip()})</div>', unsafe_allow_html=True)
+
+    with source_tab2:
+        st.markdown("##### ✍️ ૨. કોઈપણ કસ્ટમ પૅરેગ્રાફ, નોટ્સ અથવા આર્ટિકલમાંથી MCQs બનાવો:")
+        text_input = st.text_area("તમારો ટેક્સ્ટ/નોટ્સ અહીં પેસ્ટ કરો:", height=150, placeholder="અહીં તમારો સિલેબસ પેરેગ્રાફ કે નોટ્સ પેસ્ટ કરો...")
+        if text_input.strip():
+            source_mode = "custom_text"
+            custom_content = text_input.strip()
+            active_source_label = f"Custom Text / Notes ({len(text_input)} અક્ષરો)"
+            st.markdown(f'<div class="source-box">✅ સક્રિય સ્ત્રોત: કસ્ટમ ટેક્સ્ટ નોટ્સ ({len(text_input)} અક્ષરો આપેલ છે)</div>', unsafe_allow_html=True)
+
+    with source_tab3:
+        st.markdown("##### 📄 ૩. જૂના પેપર્સ અથવા સિલેબસ PDFs અપલોડ કરી MCQs બનાવો:")
+        uploaded_pdfs = st.file_uploader("PDF ફાઈલો પસંદ કરો:", type=["pdf"], accept_multiple_files=True)
+        if uploaded_pdfs:
+            source_mode = "pdf"
+            active_source_label = f"PDF Documents ({len(uploaded_pdfs)} ફાઈલો)"
+            st.markdown(f'<div class="source-box">✅ સક્રિય સ્ત્રોત: {len(uploaded_pdfs)} PDF ફાઈલો પસંદ કરેલ છે</div>', unsafe_allow_html=True)
+
+    with source_tab4:
+        st.markdown("##### 🎓 ૪. વિષયના સામાન્ય સૈદ્ધાંતિક ટોપિક પરથી સ્માર્ટ MCQs બનાવો:")
+        st.caption("ઉપરના કોઈપણ ખાના ન ભરો ત્યારે AI પોતાના જ્ઞાન અને GSSSB સિલેબસ મુજબ પ્રશ્નો બનાવશે.")
+
+    st.markdown("---")
+    st.subheader("⚙️ પ્રશ્નોની સંરચના અને વિષય પસંદગી")
     ca1, ca2 = st.columns([1, 1])
     with ca1:
-        uploaded_pdfs = st.file_uploader("GSSSB જૂના પેપર્સ PDFs અપલોડ કરો:", type=["pdf"], accept_multiple_files=True)
-        url_in = st.text_input("અથવા Web URL:")
-        custom_txt = st.text_area("અથવા કસ્ટમ ટેક્સ્ટ:", height=100)
+        target_subject = st.selectbox("લક્ષ્ય વિષય (Subject Category):", db.SUBJECTS)
     with ca2:
-        target_subject = st.selectbox("લક્ષ્ય વિષય:", db.SUBJECTS)
-        
         gen_mode = st.radio("પ્રશ્નોની સંખ્યા સિલેક્શન મોડ:", ["પસંદગી સ્લાઇડર (Preset)", "કસ્ટમ સંખ્યા (Custom Input)"], horizontal=True)
         if gen_mode == "પસંદગી સ્લાઇડર (Preset)":
             target_total = st.select_slider("🎯 કેટલા પ્રશ્નો જનરેટ કરવા છે?", options=[5, 10, 20, 50, 100, 250, 500, 1000], value=20)
         else:
             target_total = st.number_input("🎯 કસ્ટમ પ્રશ્નોની સંખ્યા દાખલ કરો:", min_value=1, max_value=2000, value=15, step=5)
-            
-        batch_size = st.slider("Batch Size (દર API કૉલે પ્રશ્નો):", min_value=5, max_value=30, value=15)
 
-    if st.button(f"⚡ {target_total} નવા દ્વિભાષી MCQs ઓટો-જનરેટ કરી એક્સેલમાં ઉમેરો", type="primary", use_container_width=True):
+    batch_size = st.slider("Batch Size (દર API કૉલે પ્રશ્નો):", min_value=5, max_value=30, value=15)
+
+    # Dynamic Button Label based on Active Source
+    btn_label = f"⚡ [{active_source_label}] પરથી {target_total} MCQs જનરેટ કરી એક્સેલમાં સેવ કરો"
+
+    if st.button(btn_label, type="primary", use_container_width=True):
         final_k = get_active_api_key()
         if not final_k:
             st.error("❌ API Key ગેરહાજર છે! સાઈડબાર કે ઉપરના ખાનામાં API Key દાખલ કરો.")
         else:
             all_chunks = []
-            if uploaded_pdfs:
+            if source_mode == "pdf" and uploaded_pdfs:
                 for pdf in uploaded_pdfs: all_chunks.extend(pe.extract_pdf_chunks(pdf))
-            elif url_in: all_chunks.append(pe.extract_text_from_url(url_in))
-            elif custom_txt: all_chunks.append(custom_txt)
-            else: all_chunks.append(f"GSSSB Supervisor Instructor syllabus for {target_subject}.")
+            elif source_mode == "url" and custom_content:
+                st.info(f"🌐 Web URL માંથી ટેક્સ્ટ મેળવવામાં આવી રહ્યો છે: {custom_content}")
+                scraped_text = pe.extract_text_from_url(custom_content)
+                all_chunks.append(scraped_text)
+            elif source_mode == "custom_text" and custom_content:
+                all_chunks.append(custom_content)
+            else:
+                all_chunks.append(f"GSSSB Supervisor Instructor syllabus for {target_subject}.")
 
             pbar, stxt = st.progress(0.0), st.empty()
             def on_prog(cur, tot, batch, bnum):
                 pbar.progress(min(1.0, cur / tot))
-                stxt.markdown(f"⏳ **પેકેટ {bnum} પૂર્ણ:** જનરેટ થાઈ કાયમી ઉમેરાયા: **{cur} / {tot}** MCQs...")
+                stxt.markdown(f"⏳ **પેકેટ {bnum} પૂર્ણ:** સ્ત્રોતમાંથી જનરેટ થઈ કાયમી ઉમેરાયા: **{cur} / {tot}** MCQs...")
 
             succ, msg, gen_list = ai.generate_bulk_gsssb_mcqs(final_k, all_chunks, target_subject, target_total, batch_size, on_prog)
             if succ:
                 st.cache_data.clear() # Invalidate cache so new questions reflect everywhere immediately
                 st.balloons()
                 st.success(f"🎉 {msg}")
-                st.info("💡 આ પ્રશ્નો અગાઉના જૂના પ્રશ્નો સાથે અકબંધ રીતે 'gsssb_question_bank.xlsx' માં ઉમેરાઈ ગયા છે!")
+                st.info(f"💡 પસંદ કરેલ સ્ત્રોત [{active_source_label}] માંથી પ્રશ્નો અગાઉના જૂના પ્રશ્નો સાથે અકબંધ રીતે 'gsssb_question_bank.xlsx' માં સાચવાઈ ગયા છે!")
             else:
                 st.error(msg)
 
@@ -469,7 +520,7 @@ else:
     **DC & IT,**  
     **HNGU ,PATAN**
     ---
-    1. **ઝીરો API Token ટેસ્ટિંગ**: એકવાર સેવ થયેલા પ્રશ્નોમાંથી ૧૦૦% મફતમાં અનંતવાર ટેસ્ટ આપો.
-    2. **કસ્ટમ AI MCQs નિર્માણ**: તમને જોઈએ તેટલા જનરેટ કરી કાયમી એક્સેલમાં ઉમેરો.
+    1. **સોર્સ આધારિત MCQ નિર્માણ**: Web URL, Custom Text / નોટ્સ, કે PDFs માંથી સ્પેસિફિક બટન સાથે પ્રશ્નો બનાવો.
+    2. **ઝીરો API Token ટેસ્ટિંગ**: એકવાર સેવ થયેલા પ્રશ્નોમાંથી ૧૦૦% મફતમાં અનંતવાર ટેસ્ટ આપો.
     3. **Excel ડાઉનલોડ & અપલોડ**: **📚 Question Bank Manager** મેનૂમાંથી એક્સેલ ડાઉનલોડ કે ઓટો-ઈમ્પોર્ટ કરો.
     """)
