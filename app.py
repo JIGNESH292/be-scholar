@@ -18,23 +18,37 @@ AUTH_USER = "jigneshpatel"
 AUTH_PASS = "jigishapatel"
 
 def get_active_api_key():
-    """Secure & robust API Key retrieval."""
+    """
+    Secure & robust API Key retrieval.
+    Ignores placeholder strings like 'your_api_key_here'.
+    """
+    candidates = []
+    
+    # 1. User UI Widget Inputs
     for widget_key in ["inline_key_input", "sidebar_key_input", "gemini_api_key"]:
         val = st.session_state.get(widget_key, "")
         if val and str(val).strip():
-            return str(val).strip()
-            
+            candidates.append(str(val).strip())
+
+    # 2. Streamlit Cloud Secrets Manager (st.secrets)
     try:
         if hasattr(st, "secrets") and "GEMINI_API_KEY" in st.secrets:
             sec_val = str(st.secrets["GEMINI_API_KEY"]).strip()
             if sec_val:
-                return sec_val
+                candidates.append(sec_val)
     except Exception:
         pass
 
+    # 3. Environment Variable
     env_val = os.getenv("GEMINI_API_KEY", "").strip()
     if env_val:
-        return env_val
+        candidates.append(env_val)
+
+    # Filter out dummy placeholder strings
+    for cand in candidates:
+        cand_clean = cand.strip()
+        if cand_clean and not cand_clean.startswith("your_api_key") and len(cand_clean) > 10:
+            return cand_clean
 
     return ""
 
@@ -134,10 +148,10 @@ with st.sidebar:
     
     sidebar_key = st.text_input("API Key પેસ્ટ કરો:", value=get_active_api_key(), type="password", key="sidebar_key_input")
     if sidebar_key and sidebar_key != st.session_state.get("gemini_api_key"):
-        st.session_state.gemini_api_key = sidebar_key
+        st.session_state.gemini_api_key = sidebar_key.strip()
         try:
             with open(ENV_PATH, "w", encoding="utf-8") as f:
-                f.write(f"GEMINI_API_KEY={sidebar_key}\n")
+                f.write(f"GEMINI_API_KEY={sidebar_key.strip()}\n")
         except Exception:
             pass
 
@@ -361,17 +375,23 @@ elif navigation.startswith("🤖"):
     
     st.subheader("🔑 API Key સેટઅપ")
     ck1, ck2 = st.columns([3, 1])
-    with ck1: in_key = st.text_input("API Key:", value=active_key, type="password", key="inline_key_input")
+    with ck1:
+        in_key = st.text_input("Gemini / OpenAI API Key:", value=active_key, type="password", key="inline_key_input")
     with ck2:
         st.markdown("<br>", unsafe_allow_html=True)
         if st.button("🔑 Save API Key", type="primary"):
             if in_key.strip():
                 st.session_state.gemini_api_key = in_key.strip()
                 try:
-                    with open(ENV_PATH, "w", encoding="utf-8") as f: f.write(f"GEMINI_API_KEY={in_key.strip()}\n")
-                except Exception: pass
+                    with open(ENV_PATH, "w", encoding="utf-8") as f:
+                        f.write(f"GEMINI_API_KEY={in_key.strip()}\n")
+                except Exception:
+                    pass
                 st.success("✅ API Key સાચવી લેવાઈ!")
                 st.rerun()
+
+    if not active_key:
+        st.warning("⚠️ પ્રશ્નો જનરેટ કરવા માટે ઉપરના ખાનામાં અથવા સાઈડબારમાં તમારી Google Gemini API Key દાખલ કરી 'Save API Key' પર ક્લિક કરો.")
 
     st.markdown("---")
     st.subheader("🎯 પ્રશ્નો નિર્માણ કરવા માટેનો સોર્સ (Source Selection)")
@@ -432,13 +452,12 @@ elif navigation.startswith("🤖"):
 
     batch_size = st.slider("Batch Size (દર API કૉલે પ્રશ્નો):", min_value=5, max_value=30, value=15)
 
-    # Dynamic Button Label based on Active Source
     btn_label = f"⚡ [{active_source_label}] પરથી {target_total} MCQs જનરેટ કરી એક્સેલમાં સેવ કરો"
 
     if st.button(btn_label, type="primary", use_container_width=True):
         final_k = get_active_api_key()
         if not final_k:
-            st.error("❌ API Key ગેરહાજર છે! સાઈડબાર કે ઉપરના ખાનામાં API Key દાખલ કરો.")
+            st.error("❌ API Key ગેરહાજર છે! કૃપા કરીને ઉપરના ખાનામાં અથવા સાઈડબારમાં સાચી Google Gemini API Key દાખલ કરી 'Save API Key' બટન દબાવો.")
         else:
             all_chunks = []
             if source_mode == "pdf" and uploaded_pdfs:
@@ -463,8 +482,9 @@ elif navigation.startswith("🤖"):
                 st.session_state.last_gen_success = True
                 st.balloons()
                 st.success(f"🎉 {msg}")
+            else:
+                st.error(f"⚠️ {msg}")
 
-    # Instant Download Alert Notification right after AI Generation
     if st.session_state.get("last_gen_success"):
         st.markdown("---")
         st.warning("⚠️ **અગત્યની સૂચના (Cloud Preservation Notice):** Streamlit Cloud સર્વર રીસ્ટાર્ટ થતાં નવા જનરેટ થયેલા પ્રશ્નો રીસેટ ન થઈ જાય તે માટે નીચેના બટન પર ક્લિક કરી **અપડેટ થયેલી એક્સેલ ફાઈલ તરત તમારા PC માં ડાઉનલોડ કરી સેવ કરી લો!**")

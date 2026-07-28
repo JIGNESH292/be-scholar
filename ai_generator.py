@@ -6,12 +6,16 @@ import database as db
 def generate_gsssb_mcqs(api_key, context_text, subject="Apparel & Fashion Design (ફેશન ડિઝાઇન)", num_questions=10):
     """
     Generate bilingual GSSSB MCQs using Google Gemini API or OpenAI API cleanly.
-    Model sequence: gemini-flash-latest -> gemini-2.0-flash
+    Model sequence: gemini-flash-latest -> gemini-2.0-flash -> gemini-1.5-flash
+    Supports both google.genai and legacy google.generativeai SDKs.
     """
     if not api_key:
-        return False, "API Key is missing."
+        return False, "API Key missing!"
 
     api_key = api_key.strip()
+    if api_key.startswith("your_api_key") or len(api_key) < 10:
+        return False, "કૃપા કરીને સાચી Google Gemini API Key દાખલ કરો."
+
     prompt = f"""
 You are an expert exam question creator for GSSSB (Gujarat Subordinate Service Selection Board) Supervisor Instructor (Apparel & Fashion Design) examination.
 
@@ -56,8 +60,8 @@ Text:
         except Exception as e:
             return False, f"OpenAI API Error: {str(e)}"
     else:
-        # Google Gemini API Execution
-        models = ['gemini-flash-latest', 'gemini-2.0-flash']
+        # 1. Try modern google-genai SDK
+        models = ['gemini-flash-latest', 'gemini-2.0-flash', 'gemini-1.5-flash']
         last_err = ""
         try:
             from google import genai
@@ -72,6 +76,23 @@ Text:
                     last_err = str(err)
         except Exception as e:
             last_err = str(e)
+
+        # 2. Fallback to legacy google-generativeai SDK if modern SDK fails
+        if not raw_response:
+            try:
+                import google.generativeai as genai_legacy
+                genai_legacy.configure(api_key=api_key)
+                for m_legacy in ['gemini-1.5-flash', 'gemini-1.5-pro', 'gemini-pro']:
+                    try:
+                        g_model = genai_legacy.GenerativeModel(m_legacy)
+                        res = g_model.generate_content(prompt)
+                        if res and res.text:
+                            raw_response = res.text
+                            break
+                    except Exception as err_l:
+                        last_err = str(err_l)
+            except Exception as e_l:
+                last_err = str(e_l)
 
         if not raw_response:
             return False, f"Gemini API Error: {last_err}"
@@ -117,11 +138,11 @@ def generate_bulk_gsssb_mcqs(api_key, text_chunks, subject="Apparel & Fashion De
             chunk_idx += 1
             time.sleep(1)
         else:
-            if "API Error" in str(result):
+            if "API Error" in str(result) or "API Key" in str(result):
                 return False, f"❌ {result}", all_gen
             time.sleep(2)
             chunk_idx += 1
             if batch_count > (target_total // batch_size) * 3 + 5:
-                break
+                return False, f"❌ Generation halted: {result}", all_gen
 
     return True, f"Successfully generated and saved {total_gen} MCQs in {batch_count} batches!", all_gen
