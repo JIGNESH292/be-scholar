@@ -3,7 +3,7 @@ import re
 import time
 import database as db
 
-# 100% Verified working Google Gemini API models (filters out deprecated 1.5/2.5/pro models)
+# 100% Verified working Google Gemini API models
 VERIFIED_GEMINI_MODELS = [
     'gemini-flash-lite-latest',
     'gemini-flash-latest',
@@ -12,10 +12,42 @@ VERIFIED_GEMINI_MODELS = [
     'gemini-2.0-flash'
 ]
 
+def clean_and_parse_json(raw_text):
+    """
+    Robust multi-pass JSON parser that handles raw unescaped backslashes,
+    control characters, and markdown formatting from LLM outputs without crashing.
+    """
+    if not raw_text:
+        return None
+
+    # Extract JSON array substring [ ... ]
+    match = re.search(r'\[.*\]', raw_text, re.DOTALL)
+    clean = match.group(0) if match else raw_text.strip().strip("```json").strip("```").strip()
+
+    # Pass 1: Direct JSON load with non-strict mode (allows unescaped control chars)
+    try:
+        return json.loads(clean, strict=False)
+    except Exception:
+        pass
+
+    # Pass 2: Fix raw invalid backslashes (replace single \ not part of valid JSON escapes)
+    sanitized = re.sub(r'(?<!\\)\\(?!["\\/bfnrtu]|u[0-9a-fA-F]{4})', r'\\\\', clean)
+    try:
+        return json.loads(sanitized, strict=False)
+    except Exception:
+        pass
+
+    # Pass 3: Aggressive backslash sanitization
+    sanitized_aggressive = clean.replace('\\', '\\\\').replace('\\\\"', '\\"')
+    try:
+        return json.loads(sanitized_aggressive, strict=False)
+    except Exception:
+        return None
+
 def generate_gsssb_mcqs(api_key, context_text, subject="Apparel & Fashion Design (ફેશન ડિઝાઇન)", num_questions=10):
     """
     Generate bilingual GSSSB MCQs using Google Gemini API or OpenAI API cleanly.
-    Uses empirically verified working Gemini models.
+    Uses robust JSON parsing and error handling.
     """
     if not api_key:
         return False, "API Key missing!"
@@ -34,7 +66,8 @@ RULES:
 1. Questions & 4 Options in both Gujarati (Question_GU, Options_GU) and English (Question_EN, Options_EN).
 2. Correct_Answer: "A", "B", "C", or "D".
 3. Difficulty: "Easy", "Medium", or "Hard".
-4. Return ONLY valid JSON array.
+4. Do NOT use unescaped backslashes inside JSON strings.
+5. Return ONLY a valid JSON array of objects.
 
 [
   {{
@@ -108,19 +141,15 @@ Text:
         if not raw_response:
             return False, f"Gemini API Error: {last_err}"
 
-    try:
-        match = re.search(r'\[.*\]', raw_response, re.DOTALL)
-        clean = match.group(0) if match else raw_response.strip().strip("```json").strip("```").strip()
-        parsed = json.loads(clean)
-        if isinstance(parsed, list) and len(parsed) > 0:
-            return True, parsed
-        return False, f"JSON parse error. Snippet: {raw_response[:150]}"
-    except Exception as e:
-        return False, f"Parsing Exception: {str(e)}"
+    parsed = clean_and_parse_json(raw_response)
+    if parsed and isinstance(parsed, list) and len(parsed) > 0:
+        return True, parsed
+        
+    return False, f"Parsing Exception: Could not parse response. Snippet: {raw_response[:150]}"
 
 def generate_bulk_gsssb_mcqs(api_key, text_chunks, subject="Apparel & Fashion Design (ફેશન ડિઝાઇન)", target_total=100, batch_size=20, progress_callback=None):
     """
-    Bulk Question Generator looping in batches.
+    Bulk Question Generator looping seamlessly in batches with auto-retry and non-halting resilience.
     """
     if not api_key:
         return False, "API Key missing!", []
@@ -132,6 +161,7 @@ def generate_bulk_gsssb_mcqs(api_key, text_chunks, subject="Apparel & Fashion De
     all_gen = []
     chunk_idx = 0
     batch_count = 0
+    failed_attempts = 0
     num_chunks = len(text_chunks)
 
     while total_gen < target_total:
@@ -144,16 +174,26 @@ def generate_bulk_gsssb_mcqs(api_key, text_chunks, subject="Apparel & Fashion De
             saved = db.save_new_questions(result, "Question_Bank")
             total_gen += saved
             all_gen.extend(result)
+            failed_attempts = 0 # Reset failed attempts on success
+            
             if progress_callback:
                 progress_callback(total_gen, target_total, result, batch_count)
             chunk_idx += 1
             time.sleep(1)
         else:
-            if "API Error" in str(result) or "API Key" in str(result):
+            # Check for critical API key or auth errors
+            if "API Key" in str(result) or "403" in str(result) or "401" in str(result):
                 return False, f"❌ {result}", all_gen
-            time.sleep(2)
+                
+            failed_attempts += 1
+            time.sleep(1.5)
             chunk_idx += 1
-            if batch_count > (target_total // batch_size) * 3 + 5:
-                return False, f"❌ Generation halted: {result}", all_gen
+            
+            # If total batch attempts exceeds 3x total batches, return whatever questions were saved without erroring out
+            if batch_count > (target_total // max(1, batch_size)) * 3 + 10 or failed_attempts > 8:
+                if total_gen > 0:
+                    return True, f"Generated and saved {total_gen} MCQs into Excel database!", all_gen
+                else:
+                    return False, f"❌ Generation paused: {result}", all_gen
 
     return True, f"Successfully generated and saved {total_gen} MCQs in {batch_count} batches!", all_gen
