@@ -3,10 +3,17 @@ import re
 import time
 import database as db
 
+# Official stable Google Gemini API models (gemini-pro is deprecated by Google and throws 404)
+STABLE_GEMINI_MODELS = [
+    'gemini-flash-latest',
+    'gemini-2.0-flash',
+    'gemini-1.5-flash'
+]
+
 def generate_gsssb_mcqs(api_key, context_text, subject="Apparel & Fashion Design (ફેશન ડિઝાઇન)", num_questions=10):
     """
     Generate bilingual GSSSB MCQs using Google Gemini API or OpenAI API cleanly.
-    Safely handles both google.genai and google.generativeai SDKs.
+    Uses official stable models: gemini-flash-latest -> gemini-2.0-flash -> gemini-1.5-flash.
     """
     if not api_key:
         return False, "API Key missing!"
@@ -66,7 +73,7 @@ Text:
         try:
             from google import genai
             client = genai.Client(api_key=api_key)
-            for m in ['gemini-flash-latest', 'gemini-2.0-flash', 'gemini-1.5-flash']:
+            for m in STABLE_GEMINI_MODELS:
                 try:
                     resp = client.models.generate_content(model=m, contents=prompt)
                     if resp and resp.text:
@@ -77,12 +84,12 @@ Text:
         except Exception as e_modern:
             last_err = str(e_modern)
 
-        # 2. Fallback: Legacy google-generativeai SDK (safely handled with try-except)
+        # 2. Fallback: Legacy google-generativeai SDK if modern SDK fails
         if not raw_response:
             try:
                 import google.generativeai as genai_legacy
                 genai_legacy.configure(api_key=api_key)
-                for m_legacy in ['gemini-1.5-flash', 'gemini-1.5-pro', 'gemini-pro']:
+                for m_legacy in STABLE_GEMINI_MODELS:
                     try:
                         g_model = genai_legacy.GenerativeModel(m_legacy)
                         res = g_model.generate_content(prompt)
