@@ -43,6 +43,19 @@ def get_cached_questions(sheet_name="Question_Bank"):
     """Cache Excel data in memory for 3x faster UI rendering."""
     return db.load_questions(sheet_name)
 
+def get_excel_download_buffer():
+    """Generate in-memory binary Excel file for instant browser download."""
+    df_bank = db.load_questions("Question_Bank")
+    df_rev = db.load_questions("Revision_Sheet")
+    df_hist = db.load_questions("Test_History")
+    
+    buf = io.BytesIO()
+    with pd.ExcelWriter(buf, engine="openpyxl") as writer:
+        df_bank.to_excel(writer, sheet_name="Question_Bank", index=False)
+        df_rev.to_excel(writer, sheet_name="Revision_Sheet", index=False)
+        df_hist.to_excel(writer, sheet_name="Test_History", index=False)
+    return buf.getvalue()
+
 # Page Setup
 st.set_page_config(page_title="Be Scholar - GSSSB Exam Prep", page_icon="🎓", layout="wide", initial_sidebar_state="expanded")
 
@@ -60,7 +73,7 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 # Session State Init
-for k, v in [("authenticated", False), ("lang", "GU"), ("quiz_active", False), ("quiz_questions", []), ("user_answers", {}), ("marked_questions", set()), ("current_q_idx", 0), ("start_time", None), ("test_submitted", False)]:
+for k, v in [("authenticated", False), ("lang", "GU"), ("quiz_active", False), ("quiz_questions", []), ("user_answers", {}), ("marked_questions", set()), ("current_q_idx", 0), ("start_time", None), ("test_submitted", False), ("last_gen_success", False)]:
     if k not in st.session_state:
         st.session_state[k] = v
 
@@ -292,14 +305,7 @@ elif navigation.startswith("📚"):
         st.subheader("📥 Excel ડેટાબેઝ બેકઅપ ડાઉનલોડ કરો")
         st.markdown("બધા સંગ્રહિત પ્રશ્નો સાથેની અદ્યતન એક્સેલ ફાઈલ ડાઉનલોડ કરી તમારા કમ્પ્યુટરમાં કાયમી સેવ રાખો:")
         
-        # Prepare Excel download buffer
-        excel_buffer = io.BytesIO()
-        with pd.ExcelWriter(excel_buffer, engine="openpyxl") as writer:
-            df_all.to_excel(writer, sheet_name="Question_Bank", index=False)
-            db.load_questions("Revision_Sheet").to_excel(writer, sheet_name="Revision_Sheet", index=False)
-            db.load_questions("Test_History").to_excel(writer, sheet_name="Test_History", index=False)
-        excel_data = excel_buffer.getvalue()
-        
+        excel_data = get_excel_download_buffer()
         st.download_button(
             label="📥 Download gsssb_question_bank.xlsx Excel Backup",
             data=excel_data,
@@ -346,7 +352,7 @@ elif navigation.startswith("📚"):
         st.dataframe(df_view[["ID", "Subject", "Question_GU", "Question_EN", "Correct_Answer", "Difficulty"]], use_container_width=True)
 
 
-# ================= PAGE 3: FLEXIBLE AI BULK MCQ GENERATOR (MULTI-SOURCE UI) =================
+# ================= PAGE 3: FLEXIBLE AI BULK MCQ GENERATOR =================
 elif navigation.startswith("🤖"):
     st.header("🤖 AI બલ્ક પ્રશ્ન નિર્માણ મોડ્યુલ (Multi-Source MCQ Generator)")
     st.markdown("તમારો સ્ત્રોત પસંદ કરો: **Web URL, Custom Text / નોટ્સ, PDF ફાઈલો, અથવા વિષય ટોપિક** માંથી પ્રશ્નો બનાવો.")
@@ -453,12 +459,25 @@ elif navigation.startswith("🤖"):
 
             succ, msg, gen_list = ai.generate_bulk_gsssb_mcqs(final_k, all_chunks, target_subject, target_total, batch_size, on_prog)
             if succ:
-                st.cache_data.clear() # Invalidate cache so new questions reflect everywhere immediately
+                st.cache_data.clear()
+                st.session_state.last_gen_success = True
                 st.balloons()
                 st.success(f"🎉 {msg}")
-                st.info(f"💡 પસંદ કરેલ સ્ત્રોત [{active_source_label}] માંથી પ્રશ્નો અગાઉના જૂના પ્રશ્નો સાથે અકબંધ રીતે 'gsssb_question_bank.xlsx' માં સાચવાઈ ગયા છે!")
-            else:
-                st.error(msg)
+
+    # Instant Download Alert Notification right after AI Generation
+    if st.session_state.get("last_gen_success"):
+        st.markdown("---")
+        st.warning("⚠️ **અગત્યની સૂચના (Cloud Preservation Notice):** Streamlit Cloud સર્વર રીસ્ટાર્ટ થતાં નવા જનરેટ થયેલા પ્રશ્નો રીસેટ ન થઈ જાય તે માટે નીચેના બટન પર ક્લિક કરી **અપડેટ થયેલી એક્સેલ ફાઈલ તરત તમારા PC માં ડાઉનલોડ કરી સેવ કરી લો!**")
+        
+        down_buf = get_excel_download_buffer()
+        st.download_button(
+            label="📥 Download & Save Updated Excel to Computer Now",
+            data=down_buf,
+            file_name="gsssb_question_bank.xlsx",
+            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            type="primary",
+            use_container_width=True
+        )
 
 
 # ================= PAGE 4: PERFORMANCE ANALYTICS =================
