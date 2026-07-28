@@ -6,8 +6,7 @@ import database as db
 def generate_gsssb_mcqs(api_key, context_text, subject="Apparel & Fashion Design (ફેશન ડિઝાઇન)", num_questions=10):
     """
     Generate bilingual GSSSB MCQs using Google Gemini API or OpenAI API cleanly.
-    Model sequence: gemini-flash-latest -> gemini-2.0-flash -> gemini-1.5-flash
-    Supports both google.genai and legacy google.generativeai SDKs.
+    Safely handles both google.genai and google.generativeai SDKs.
     """
     if not api_key:
         return False, "API Key missing!"
@@ -60,24 +59,25 @@ Text:
         except Exception as e:
             return False, f"OpenAI API Error: {str(e)}"
     else:
-        # 1. Try modern google-genai SDK
-        models = ['gemini-flash-latest', 'gemini-2.0-flash', 'gemini-1.5-flash']
+        # Google Gemini API Execution
         last_err = ""
+        
+        # 1. Primary: Modern google-genai SDK
         try:
             from google import genai
             client = genai.Client(api_key=api_key)
-            for m in models:
+            for m in ['gemini-flash-latest', 'gemini-2.0-flash', 'gemini-1.5-flash']:
                 try:
                     resp = client.models.generate_content(model=m, contents=prompt)
                     if resp and resp.text:
                         raw_response = resp.text
                         break
-                except Exception as err:
-                    last_err = str(err)
-        except Exception as e:
-            last_err = str(e)
+                except Exception as err_m:
+                    last_err = str(err_m)
+        except Exception as e_modern:
+            last_err = str(e_modern)
 
-        # 2. Fallback to legacy google-generativeai SDK if modern SDK fails
+        # 2. Fallback: Legacy google-generativeai SDK (safely handled with try-except)
         if not raw_response:
             try:
                 import google.generativeai as genai_legacy
@@ -91,6 +91,8 @@ Text:
                             break
                     except Exception as err_l:
                         last_err = str(err_l)
+            except (ImportError, ModuleNotFoundError):
+                pass
             except Exception as e_l:
                 last_err = str(e_l)
 
